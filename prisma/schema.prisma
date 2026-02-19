@@ -1,0 +1,543 @@
+// PMS - Project Management System Schema
+// SIMPLIFIED: Roles + Powers directly in User
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum RoleType {
+  admin
+  department_head
+  group_leader
+  member
+}
+
+enum Power {
+  monitoring // Read-only access
+  full // Full CRUD access
+}
+
+// ============================================
+// USERS
+// ============================================
+
+model User {
+  id            String  @id @default(cuid())
+  name          String
+  email         String  @unique
+  emailVerified Boolean @default(false)
+  phone         String? @unique
+  phoneVerified Boolean @default(false)
+  image         String?
+  isActive      Boolean @default(true)
+
+  // Employee Profile Data
+  profileImage          Bytes? // Binary profile image data
+  employeeId            String?   @unique
+  jobTitle              String?
+  address               String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  country               String?
+  dateOfBirth           DateTime?
+  dateOfJoining         DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  // Role and Power directly in User
+  role  RoleType @default(member)
+  power Power    @default(monitoring)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Department membership
+  departmentId Int?
+  department   Department? @relation("DepartmentEmployees", fields: [departmentId], references: [id])
+
+  // Reverse relation for department head
+  headOfDepartment Department? @relation("DepartmentHead")
+
+  // Auth relations
+  passkeys Passkey[]
+  sessions Session[]
+  accounts Account[]
+
+  // Project relations
+  createdProjects  ProjectInstance[] @relation("ProjectInstanceCreator")
+  assignedProjects ProjectInstance[] @relation("ProjectInstanceAssignee")
+  approvedProjects ProjectInstance[] @relation("ProjectInstanceApprover")
+
+  // Reverse relation for project template seeker (lead)
+  projectTemplatesAsSeeker ProjectTemplate[] @relation("ProjectTemplateSeeker")
+
+  // Task relations
+  createdTasks  Task[] @relation("TaskCreator")
+  assignedTasks Task[] @relation("TaskAssignee")
+  approvedTasks Task[] @relation("TaskApprover")
+
+  // Milestone relations
+  createdMilestones  Milestone[] @relation("MilestoneCreator")
+  assignedMilestones Milestone[] @relation("MilestoneAssignee")
+  approvedMilestones Milestone[] @relation("MilestoneApprover")
+
+  // Other relations
+  createdLabels Label[]       @relation("LabelCreator")
+  attachments   Attachment[]
+  comments      Comment[]
+  activityLogs  ActivityLog[]
+
+  @@index([departmentId])
+  @@index([email])
+  @@index([role])
+  @@map("user")
+}
+
+// ============================================
+// AUTH MODELS
+// ============================================
+
+model Passkey {
+  id           String    @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialID String    @unique
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime? @default(now())
+  aaguid       String?
+
+  @@index([userId])
+  @@map("passkey")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ============================================
+// ORGANIZATION
+// ============================================
+
+model Department {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // One-to-one relation: Department has one head
+  headId String? @unique
+  head   User?   @relation("DepartmentHead", fields: [headId], references: [id])
+
+  // One-to-many: Department has many employees
+  employees  User[]            @relation("DepartmentEmployees")
+  labels     Label[]
+  projects   ProjectInstance[]
+  milestones Milestone[]
+  tasks      Task[]
+
+  @@index([headId])
+  @@map("department")
+}
+
+// ============================================
+// GLOBAL SETTINGS
+// ============================================
+
+model Status {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  color     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projectTemplates ProjectTemplate[]
+  projectInstances ProjectInstance[]
+  milestones       Milestone[]
+
+  @@map("status")
+}
+
+model Priority {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  color     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projectTemplates ProjectTemplate[]
+  projectInstances ProjectInstance[]
+  tasks            Task[]
+  milestones       Milestone[]
+
+  @@map("priority")
+}
+
+model Label {
+  id    Int     @id @default(autoincrement())
+  name  String
+  color String?
+
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User?   @relation("LabelCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taskLabels TaskLabel[]
+
+  @@unique([name, departmentId])
+  @@index([departmentId])
+  @@map("label")
+}
+
+// ============================================
+// PROJECTS
+// ============================================
+
+model ProjectTemplate {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+
+  statusId Int
+  status   Status @relation(fields: [statusId], references: [id])
+
+  priorityId Int?
+  priority   Priority? @relation(fields: [priorityId], references: [id])
+
+  // Lead assignment
+  seekerId String?
+  seeker   User?   @relation("ProjectTemplateSeeker", fields: [seekerId], references: [id])
+
+  // Project template image
+  image Bytes?
+
+  startDate DateTime?
+  endDate   DateTime?
+  isActive  Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projectInstances ProjectInstance[]
+
+  @@index([statusId])
+  @@index([seekerId])
+  @@map("project_template")
+}
+
+model ProjectInstance {
+  id Int @id @default(autoincrement())
+
+  templateId Int?
+  template   ProjectTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+
+  statusId Int
+  status   Status @relation(fields: [statusId], references: [id])
+
+  priorityId Int?
+  priority   Priority? @relation(fields: [priorityId], references: [id])
+
+  startDate DateTime?
+  endDate   DateTime?
+  progress  Int       @default(0)
+
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  isApproved    Boolean   @default(false)
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User?     @relation("ProjectInstanceApprover", fields: [approvedById], references: [id])
+  rejectionNote String?
+
+  createdById String
+  createdBy   User   @relation("ProjectInstanceCreator", fields: [createdById], references: [id])
+
+  assigneeId String?
+  assignee   User?   @relation("ProjectInstanceAssignee", fields: [assigneeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks       Task[]
+  milestones  Milestone[]
+  attachments Attachment[]
+  comments    Comment[]
+
+  @@index([templateId])
+  @@index([departmentId])
+  @@index([statusId])
+  @@index([createdById])
+  @@index([assigneeId])
+  @@map("project_instance")
+}
+
+// ============================================
+// TASKS
+// ============================================
+
+model Task {
+  id          Int     @id @default(autoincrement())
+  title       String
+  description String?
+
+  priorityId Int?
+  priority   Priority? @relation(fields: [priorityId], references: [id])
+
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  dueDate     DateTime?
+  isPrivate   Boolean   @default(false)
+
+  isApproved    Boolean   @default(false)
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User?     @relation("TaskApprover", fields: [approvedById], references: [id])
+  rejectionNote String?
+
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // Optional for global admin tasks
+  projectInstanceId Int?
+  projectInstance   ProjectInstance? @relation(fields: [projectInstanceId], references: [id], onDelete: Cascade)
+
+  milestoneId Int?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  assigneeId String?
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("TaskCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taskLabels  TaskLabel[]
+  attachments Attachment[]
+  comments    Comment[]
+
+  @@index([projectInstanceId])
+  @@index([assigneeId])
+  @@index([createdById])
+  @@map("task")
+}
+
+model TaskLabel {
+  taskId  Int
+  labelId Int
+  task    Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label   Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+  @@map("task_label")
+}
+
+// ============================================
+// MILESTONES
+// ============================================
+
+model Milestone {
+  id          Int     @id @default(autoincrement())
+  title       String
+  description String?
+
+  statusId Int
+  status   Status @relation(fields: [statusId], references: [id])
+
+  priorityId Int?
+  priority   Priority? @relation(fields: [priorityId], references: [id])
+
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  dueDate     DateTime?
+
+  isApproved    Boolean   @default(false)
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User?     @relation("MilestoneApprover", fields: [approvedById], references: [id])
+  rejectionNote String?
+
+  projectInstanceId Int
+  projectInstance   ProjectInstance @relation(fields: [projectInstanceId], references: [id], onDelete: Cascade)
+
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  assigneeId String?
+  assignee   User?   @relation("MilestoneAssignee", fields: [assigneeId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("MilestoneCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments Attachment[]
+  comments    Comment[]
+  tasks       Task[]
+
+  @@index([projectInstanceId])
+  @@index([departmentId])
+  @@index([assigneeId])
+  @@map("milestone")
+}
+
+// ============================================
+// ATTACHMENTS & COMMENTS
+// ============================================
+
+model Attachment {
+  id        Int      @id @default(autoincrement())
+  fileName  String
+  fileUrl   String
+  fileType  String?
+  fileSize  Int?
+  createdAt DateTime @default(now())
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  projectInstanceId Int?
+  projectInstance   ProjectInstance? @relation(fields: [projectInstanceId], references: [id], onDelete: Cascade)
+
+  taskId Int?
+  task   Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  milestoneId Int?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([projectInstanceId])
+  @@index([taskId])
+  @@index([milestoneId])
+  @@map("attachment")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  projectInstanceId Int?
+  projectInstance   ProjectInstance? @relation(fields: [projectInstanceId], references: [id], onDelete: Cascade)
+
+  taskId Int?
+  task   Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  milestoneId Int?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  parentId Int?
+  parent   Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+
+  replies Comment[] @relation("CommentReplies")
+
+  @@index([projectInstanceId])
+  @@index([taskId])
+  @@index([milestoneId])
+  @@index([authorId])
+  @@map("comment")
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+model ActivityLog {
+  id          Int      @id @default(autoincrement())
+  action      String
+  entity      String
+  entityId    String
+  description String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("activity_log")
+}
